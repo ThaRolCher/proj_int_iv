@@ -1,0 +1,59 @@
+import os
+import gzip
+import shutil
+import urllib.request
+import pandas as pd
+
+# 1. Configuração dos parâmetros do "Cliente" NCBI
+GEO_ID = "GSE156994"
+# URL oficial do servidor FTP do NCBI para a matriz de expressão deste dataset
+# Corrected URL for NCBI GEO data
+ftp_url = f"ftp://ftp.ncbi.nlm.nih.gov/geo/series/{GEO_ID[:len(GEO_ID)-3]}nnn/{GEO_ID}/matrix/{GEO_ID}_series_matrix.txt.gz"
+output_gz = f"{GEO_ID}_series_matrix.txt.gz"
+output_txt = f"{GEO_ID}_series_matrix.txt"
+
+print(f"📦 Iniciando download do dataset {GEO_ID} direto do NCBI...")
+
+# 2. Download automatizado via urllib
+try:
+    urllib.request.urlretrieve(ftp_url, output_gz)
+    print("✅ Download concluído com sucesso!")
+except Exception as e:
+    print(f"❌ Erro no download: {e}")
+
+# 3. Descompactação do arquivo .gz
+print("📂 Descompactando arquivo...")
+with gzip.open(output_gz, 'rb') as f_in:
+    with open(output_txt, 'wb') as f_out:
+        shutil.copyfileobj(f_in, f_out)
+print("✅ Arquivo descompactado.")
+
+# 4. Processamento do arquivo (Separando Metadados Clínicos de Dados Biológicos)
+# Arquivos de matriz do GEO possuem cabeçalhos longos marcados com "!"
+print("🛠️ Tratando o arquivo e estruturando tabelas...")
+
+skip_rows = 0
+with open(output_txt, 'r') as file:
+    for line in file:
+        if line.startswith('!series_matrix_table_begin'):
+            break
+        skip_rows += 1
+
+# Carrega a matriz de expressão biológica (Genes nas linhas, Amostras nas colunas)
+# Pulamos as linhas de metadados iniciais para pegar a tabela puramente numérica
+df_biologico = pd.read_csv(output_txt, sep='\t', skiprows=skip_rows + 1, comment='!')
+# Remove a linha final de controle do GEO se houver
+df_biologico = df_biologico[df_biologico.iloc[:, 0] != '!series_matrix_table_end']
+
+# 5. Transposição dos dados para o formato padrão de Machine Learning
+# Queremos Amostras/Pacientes nas LINHAS e Genes nas COLUNAS
+df_biologico.set_index(df_biologico.columns[0], inplace=True)
+df_ml = df_biologico.T
+df_ml.index.name = "ID_Amostra"
+
+print("\n🚀 --- DATAFRAME PRONTO PARA MACHINE LEARNING ---")
+print(f"Quantidade de Amostras (Linhas): {df_ml.shape[0]}")
+print(f"Quantidade de Atributos/Genes (Colunas): {df_ml.shape[1]}")
+print("\nPrimeiras linhas e colunas do dataset estruturado:")
+print(df_ml.iloc[:5, :5])
+
